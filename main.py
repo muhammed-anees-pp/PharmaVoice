@@ -4,6 +4,7 @@ import json
 import websockets
 import os
 from dotenv import load_dotenv
+from pharmacy_functions import FUNCTION_MAP
 load_dotenv()
 
 
@@ -46,16 +47,92 @@ async def handle_user_interrupt(message_data, twilio_ws, stream_sid):
 
 
 """
+EXECUTE TOOL CALL
+"""
+def execute_tool_call(function_name, arguments):
+    if function_name in FUNCTION_MAP:
+        result = FUNCTION_MAP[function_name](**arguments)
+        print(f"Function call result: {result}")
+        return result
+
+    result = {"error": f"Unknown function: {function_name}"}
+    print(result)
+    return result
+
+
+"""
+BUILD FUNCTION CALL RESPONSE
+"""
+def build_function_call_response(function_id, function_name, result):
+    return {
+        "type": "FunctionCallResponse",
+        "id": function_id,
+        "name": function_name,
+        "content": json.dumps(result),
+    }
+
+
+"""
+HANDLE FUNCTION CALLS
+"""
+async def handle_function_calls(message_data, deepgram_ws):
+    try:
+        for function_call in message_data["functions"]:
+            function_name = function_call["name"]
+            function_id = function_call["id"]
+            arguments = json.loads(function_call["arguments"])
+
+            print(
+                f"Function call: {function_name} "
+                f"(ID: {function_id}), "
+                f"arguments: {arguments}"
+            )
+
+            result = execute_tool_call(function_name,arguments)
+            function_result = build_function_call_response(function_id,function_name,result)
+            await deepgram_ws.send(json.dumps(function_result))
+
+            print(
+                f"Sent function result: "
+                f"{function_result}"
+            )
+
+    except Exception as error:
+        print(
+            f"Error calling function: {error}"
+        )
+
+        error_result = build_function_call_response(
+            (
+                function_id
+                if "function_id" in locals()
+                else "unknown"
+            ),
+            (
+                function_name
+                if "function_name" in locals()
+                else "unknown"
+            ),
+            {
+                "error": (
+                    f"Function call failed with: "
+                    f"{str(error)}"
+                )
+            },
+        )
+
+        await deepgram_ws.send(json.dumps(error_result))
+
+
+"""
 HANDLE DEEPGRAM MESSAGES
 """
 async def handle_deepgram_message(message_data, twilio_ws, deepgram_ws, stream_sid):
-    await handle_user_interrupt(
-        message_data,
-        twilio_ws,
-        stream_sid,
-    )
+    await handle_user_interrupt(message_data,twilio_ws,stream_sid)
 
-    #Todo: handle function calling 
+
+    if message_data["type"] == "FunctionCallRequest":
+        await handle_function_calls(message_data, deepgram_ws)
 
 
 """
