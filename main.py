@@ -29,12 +29,33 @@ def load_agent_config():
     with open("config.json", "r") as f:
         return json.load(f)
 
-async def handle_user_interrupt(decoded, twilio_ws, streamsid):
-    pass
+
+"""
+HANDLE USER INTERRUPTION
+"""
+async def handle_user_interrupt(message_data, twilio_ws, stream_sid):
+    if message_data["type"] == "UserStartedSpeaking":
+        clear_message = {
+            "event": "clear",
+            "streamSid": stream_sid,
+        }
+
+        await twilio_ws.send(
+            json.dumps(clear_message)
+        )
 
 
-async def handle_deepgram_message(decoded, twilio_ws, deepgram_ws, streamsid):
-    pass
+"""
+HANDLE DEEPGRAM MESSAGES
+"""
+async def handle_deepgram_message(message_data, twilio_ws, deepgram_ws, stream_sid):
+    await handle_user_interrupt(
+        message_data,
+        twilio_ws,
+        stream_sid,
+    )
+
+    #Todo: handle function calling 
 
 
 """
