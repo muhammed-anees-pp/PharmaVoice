@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import tempfile
@@ -12,11 +13,51 @@ class PharmacyFunctionTests(unittest.TestCase):
     def setUp(self):
         self.database = tempfile.NamedTemporaryFile(delete=False)
         self.database.close()
+        self.inventory = tempfile.NamedTemporaryFile(
+            mode="w",
+            delete=False,
+            encoding="utf-8",
+        )
+        json.dump(
+            {
+                "drugs": [
+                    {
+                        "slug": "aspirin",
+                        "name": "Acetylsalicylic Acid",
+                        "price": 50.0,
+                        "currency": "INR",
+                        "description": (
+                            "Non-steroidal anti-inflammatory drug for "
+                            "pain relief and fever reduction"
+                        ),
+                        "quantity": 30,
+                        "stock": 100,
+                    },
+                    {
+                        "slug": "metformin",
+                        "name": "Metformin Hydrochloride",
+                        "price": 120.0,
+                        "currency": "INR",
+                        "description": (
+                            "Biguanide antidiabetic medication for "
+                            "type 2 diabetes management"
+                        ),
+                        "quantity": 60,
+                        "stock": 100,
+                    },
+                ]
+            },
+            self.inventory,
+        )
+        self.inventory.close()
         os.environ["PHARMACY_DB_PATH"] = self.database.name
+        os.environ["PHARMACY_DATA_PATH"] = self.inventory.name
 
     def tearDown(self):
         os.environ.pop("PHARMACY_DB_PATH", None)
+        os.environ.pop("PHARMACY_DATA_PATH", None)
         os.unlink(self.database.name)
+        os.unlink(self.inventory.name)
 
     def test_get_drug_info_returns_seeded_inventory(self):
         result = get_drug_info("aspirin")
@@ -63,4 +104,3 @@ class PharmacyFunctionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

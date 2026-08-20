@@ -1,0 +1,22 @@
+{
+  "drugs": [
+    {
+      "slug": "aspirin",
+      "name": "Acetylsalicylic Acid",
+      "price": 50.0,
+      "currency": "INR",
+      "description": "Non-steroidal anti-inflammatory drug for pain relief and fever reduction",
+      "quantity": 30,
+      "stock": 100
+    },
+    {
+      "slug": "metformin",
+      "name": "Metformin Hydrochloride",
+      "price": 120.0,
+      "currency": "INR",
+      "description": "Biguanide antidiabetic medication for type 2 diabetes management",
+      "quantity": 60,
+      "stock": 100
+    }
+  ]
+}

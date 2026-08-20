@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -5,114 +6,34 @@ from datetime import datetime, timezone
 
 
 DEFAULT_DB_PATH = "pharmacy.db"
-
-
-DEFAULT_DRUGS = {
-    "aspirin": {
-        "name": "Acetylsalicylic Acid",
-        "price": 50.00,
-        "description": (
-            "Non-steroidal anti-inflammatory drug for "
-            "pain relief and fever reduction"
-        ),
-        "quantity": 30,
-        "stock": 100,
-    },
-    "ibuprofen": {
-        "name": "Ibuprofen",
-        "price": 80.00,
-        "description": (
-            "Anti-inflammatory medication for pain and "
-            "inflammation management"
-        ),
-        "quantity": 20,
-        "stock": 100,
-    },
-    "acetaminophen": {
-        "name": "Acetaminophen",
-        "price": 60.00,
-        "description": (
-            "Analgesic and antipyretic medication for "
-            "pain and fever control"
-        ),
-        "quantity": 25,
-        "stock": 100,
-    },
-    "metformin": {
-        "name": "Metformin Hydrochloride",
-        "price": 120.00,
-        "description": (
-            "Biguanide antidiabetic medication for "
-            "type 2 diabetes management"
-        ),
-        "quantity": 60,
-        "stock": 100,
-    },
-    "lisinopril": {
-        "name": "Lisinopril",
-        "price": 90.00,
-        "description": (
-            "ACE inhibitor for hypertension and "
-            "heart failure treatment"
-        ),
-        "quantity": 30,
-        "stock": 100,
-    },
-    "atorvastatin": {
-        "name": "Atorvastatin Calcium",
-        "price": 180.00,
-        "description": (
-            "HMG-CoA reductase inhibitor for "
-            "cholesterol management"
-        ),
-        "quantity": 30,
-        "stock": 100,
-    },
-    "omeprazole": {
-        "name": "Omeprazole",
-        "price": 140.00,
-        "description": (
-            "Proton pump inhibitor for acid reflux "
-            "and ulcer treatment"
-        ),
-        "quantity": 28,
-        "stock": 100,
-    },
-    "amlodipine": {
-        "name": "Amlodipine Besylate",
-        "price": 100.00,
-        "description": (
-            "Calcium channel blocker for hypertension "
-            "and angina"
-        ),
-        "quantity": 30,
-        "stock": 100,
-    },
-    "metoprolol": {
-        "name": "Metoprolol Tartrate",
-        "price": 110.00,
-        "description": (
-            "Beta-blocker for hypertension and "
-            "heart rhythm disorders"
-        ),
-        "quantity": 30,
-        "stock": 100,
-    },
-    "sertraline": {
-        "name": "Sertraline Hydrochloride",
-        "price": 250.00,
-        "description": (
-            "Selective serotonin reuptake inhibitor for "
-            "depression and anxiety"
-        ),
-        "quantity": 30,
-        "stock": 100,
-    },
-}
+DEFAULT_INVENTORY_PATH = "pharmacy_inventory.json"
 
 
 def get_database_path():
     return os.getenv("PHARMACY_DB_PATH", DEFAULT_DB_PATH)
+
+
+def get_inventory_path():
+    return os.getenv("PHARMACY_DATA_PATH", DEFAULT_INVENTORY_PATH)
+
+
+def load_inventory_data():
+    inventory_path = get_inventory_path()
+
+    if not os.path.exists(inventory_path):
+        raise FileNotFoundError(
+            f"Pharmacy inventory file not found: {inventory_path}"
+        )
+
+    with open(inventory_path, "r", encoding="utf-8") as inventory_file:
+        data = json.load(inventory_file)
+
+    drugs = data.get("drugs")
+
+    if not isinstance(drugs, list):
+        raise ValueError("Pharmacy inventory JSON must contain a drugs list")
+
+    return drugs
 
 
 def utc_now():
@@ -188,7 +109,9 @@ def initialize_database(db_path=None):
 def seed_drugs(connection):
     now = utc_now()
 
-    for slug, drug in DEFAULT_DRUGS.items():
+    for drug in load_inventory_data():
+        slug = drug["slug"].lower()
+
         connection.execute(
             """
             INSERT INTO drugs (
@@ -216,7 +139,7 @@ def seed_drugs(connection):
                 drug["name"],
                 drug["description"],
                 drug["price"],
-                "INR",
+                drug.get("currency", "INR"),
                 drug["quantity"],
                 drug["stock"],
                 now,
