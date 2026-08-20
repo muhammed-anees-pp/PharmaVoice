@@ -3,9 +3,14 @@ import base64
 import json
 import websockets
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from pharmacy_functions import FUNCTION_MAP
+from pharmacy_storage import initialize_database
 load_dotenv()
+
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 """
@@ -27,7 +32,7 @@ def connect_to_deepgram_agent():
 AGENT CONFIGURATION LOADING
 """
 def load_agent_config():
-    with open("config.json", "r") as f:
+    with open(BASE_DIR / "config.json", "r") as f:
         return json.load(f)
 
 
@@ -35,7 +40,7 @@ def load_agent_config():
 HANDLE USER INTERRUPTION
 """
 async def handle_user_interrupt(message_data, twilio_ws, stream_sid):
-    if message_data["type"] == "UserStartedSpeaking":
+    if message_data.get("type") == "UserStartedSpeaking":
         clear_message = {
             "event": "clear",
             "streamSid": stream_sid,
@@ -80,7 +85,10 @@ async def handle_function_calls(message_data, deepgram_ws):
         for function_call in message_data["functions"]:
             function_name = function_call["name"]
             function_id = function_call["id"]
-            arguments = json.loads(function_call["arguments"])
+            arguments = function_call["arguments"]
+
+            if isinstance(arguments, str):
+                arguments = json.loads(arguments)
 
             print(
                 f"Function call: {function_name} "
@@ -131,7 +139,7 @@ async def handle_deepgram_message(message_data, twilio_ws, deepgram_ws, stream_s
     await handle_user_interrupt(message_data,twilio_ws,stream_sid)
 
 
-    if message_data["type"] == "FunctionCallRequest":
+    if message_data.get("type") == "FunctionCallRequest":
         await handle_function_calls(message_data, deepgram_ws)
 
 
@@ -274,6 +282,8 @@ async def handle_twilio_connection(twilio_ws):
 APPLICATION ENTRY POINT
 """
 async def main():
+    initialize_database()
+
     await websockets.serve(
         handle_twilio_connection,
         "localhost",
