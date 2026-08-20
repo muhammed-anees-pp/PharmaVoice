@@ -18,14 +18,20 @@ The database stores:
 - Orders
 - Order status history
 
-You can override the database path with:
+Drug inventory is seeded from `pharmacy_inventory.json`. This file is ignored
+by Git so local medicine data is not committed. Use
+`pharmacy_inventory.example.json` as the structure reference.
+
+You can override the database and inventory paths with:
 
 ```bash
-PHARMACY_DB_PATH=/path/to/pharmacy.db python main.py
+PHARMACY_DB_PATH=/path/to/pharmacy.db \
+PHARMACY_DATA_PATH=/path/to/pharmacy_inventory.json \
+python main.py
 ```
 
-The database schema and default drug inventory are initialized automatically
-the first time a pharmacy function runs.
+The database schema and drug inventory are initialized automatically the first
+time a pharmacy function runs.
 
 Development
 -----------
