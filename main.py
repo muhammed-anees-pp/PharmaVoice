@@ -42,8 +42,53 @@ async def send_audio_to_deepgram(deepgram_ws, audio_queue):
 async def receive_from_deepgram(deepgram_ws, twilio_ws, streamsid_queue):
     pass
 
-async def receive_from_twilio(twilio_ws, audio_queue, streamsid_queue):
-    pass
+
+"""
+RECEIVE AUDIO FROM TWILIO
+"""
+async def receive_from_twilio(twilio_ws, audio_queue, stream_sid_queue):
+    BUFFER_SIZE = 20 * 160
+    audio_buffer = bytearray()
+
+    async for message in twilio_ws:
+        try:
+            data = json.loads(message)
+            event = data["event"]
+
+            if event == "start":
+                print("Getting Stream SID")
+
+                start = data["start"]
+                stream_sid = start["streamSid"]
+
+                stream_sid_queue.put_nowait(stream_sid)
+
+            elif event == "connected":
+                continue
+
+            elif event == "media":
+                media = data["media"]
+
+                chunk = base64.b64decode(
+                    media["payload"]
+                )
+
+                if media["track"] == "inbound":
+                    audio_buffer.extend(chunk)
+
+            elif event == "stop":
+                break
+
+            while len(audio_buffer) >= BUFFER_SIZE:
+                chunk = audio_buffer[:BUFFER_SIZE]
+
+                audio_queue.put_nowait(chunk)
+
+                audio_buffer = audio_buffer[BUFFER_SIZE:]
+
+        except Exception as error:
+            print(f"Error receiving Twilio audio: {error}")
+            break
 
 
 """
@@ -55,9 +100,11 @@ async def handle_twilio_connection(twilio_ws):
 
     async with connect_to_deepgram_agent() as deepgram_ws:
         config_message = load_agent_config()
+
         await deepgram_ws.send(
             json.dumps(config_message)
         )
+
         await asyncio.wait(
             [
                 asyncio.ensure_future(
