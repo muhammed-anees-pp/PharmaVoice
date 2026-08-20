@@ -11,6 +11,7 @@ load_dotenv()
 
 
 BASE_DIR = Path(__file__).resolve().parent
+TWILIO_AUDIO_CHUNK_SIZE = 160
 
 
 """
@@ -149,9 +150,16 @@ SEND AUDIO TO DEEPGRAM
 async def send_audio_to_deepgram(deepgram_ws, audio_queue):
     print("Deepgram audio sender started")
 
-    while True:
-        audio_chunk = await audio_queue.get()
-        await deepgram_ws.send(audio_chunk)
+    try:
+        while True:
+            audio_chunk = await audio_queue.get()
+
+            if audio_chunk is None:
+                break
+
+            await deepgram_ws.send(audio_chunk)
+    except websockets.exceptions.ConnectionClosed:
+        print("Deepgram audio sender stopped: connection closed")
 
 
 """
@@ -193,7 +201,6 @@ async def receive_from_deepgram(deepgram_ws, twilio_ws, stream_sid_queue):
 RECEIVE AUDIO FROM TWILIO
 """
 async def receive_from_twilio(twilio_ws, audio_queue, stream_sid_queue):
-    BUFFER_SIZE = 20 * 160
     audio_buffer = bytearray()
 
     async for message in twilio_ws:
@@ -214,27 +221,35 @@ async def receive_from_twilio(twilio_ws, audio_queue, stream_sid_queue):
 
             elif event == "media":
                 media = data["media"]
+                track = media.get("track", "inbound")
 
                 chunk = base64.b64decode(
                     media["payload"]
                 )
 
-                if media["track"] == "inbound":
+                if track in ("inbound", "inbound_track"):
                     audio_buffer.extend(chunk)
+                else:
+                    continue
 
             elif event == "stop":
                 break
 
-            while len(audio_buffer) >= BUFFER_SIZE:
-                chunk = audio_buffer[:BUFFER_SIZE]
+            while len(audio_buffer) >= TWILIO_AUDIO_CHUNK_SIZE:
+                chunk = audio_buffer[:TWILIO_AUDIO_CHUNK_SIZE]
 
-                audio_queue.put_nowait(chunk)
+                await audio_queue.put(chunk)
 
-                audio_buffer = audio_buffer[BUFFER_SIZE:]
+                audio_buffer = audio_buffer[TWILIO_AUDIO_CHUNK_SIZE:]
 
         except Exception as error:
             print(f"Error receiving Twilio audio: {error}")
             break
+
+    if audio_buffer:
+        await audio_queue.put(bytes(audio_buffer))
+
+    await audio_queue.put(None)
 
 
 """
@@ -251,30 +266,40 @@ async def handle_twilio_connection(twilio_ws):
             json.dumps(config_message)
         )
 
-        await asyncio.wait(
-            [
-                asyncio.ensure_future(
-                    send_audio_to_deepgram(
-                        deepgram_ws,
-                        audio_queue
-                    )
-                ),
-                asyncio.ensure_future(
-                    receive_from_deepgram(
-                        deepgram_ws,
-                        twilio_ws,
-                        stream_sid_queue
-                    )
-                ),
-                asyncio.ensure_future(
-                    receive_from_twilio(
-                        twilio_ws,
-                        audio_queue,
-                        stream_sid_queue
-                    )
-                ),
-            ]
+        tasks = [
+            asyncio.create_task(
+                send_audio_to_deepgram(
+                    deepgram_ws,
+                    audio_queue
+                )
+            ),
+            asyncio.create_task(
+                receive_from_deepgram(
+                    deepgram_ws,
+                    twilio_ws,
+                    stream_sid_queue
+                )
+            ),
+            asyncio.create_task(
+                receive_from_twilio(
+                    twilio_ws,
+                    audio_queue,
+                    stream_sid_queue
+                )
+            ),
+        ]
+
+        done, pending = await asyncio.wait(
+            tasks,
+            return_when=asyncio.FIRST_COMPLETED,
         )
+
+        for task in pending:
+            task.cancel()
+
+        await asyncio.gather(*pending, return_exceptions=True)
+        await asyncio.gather(*done, return_exceptions=True)
+
         await twilio_ws.close()
 
 
