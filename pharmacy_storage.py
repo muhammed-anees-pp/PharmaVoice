@@ -3,8 +3,10 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
 
+BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = "pharmacy.db"
 DEFAULT_INVENTORY_PATH = "pharmacy_inventory.json"
 
@@ -13,14 +15,20 @@ DEFAULT_INVENTORY_PATH = "pharmacy_inventory.json"
 GET DATABASE PATH
 """
 def get_database_path():
-    return os.getenv("PHARMACY_DB_PATH", DEFAULT_DB_PATH)
+    return os.getenv(
+        "PHARMACY_DB_PATH",
+        str(BASE_DIR / DEFAULT_DB_PATH),
+    )
 
 
 """
 GET INVENTORY PATH
 """
 def get_inventory_path():
-    return os.getenv("PHARMACY_DATA_PATH", DEFAULT_INVENTORY_PATH)
+    return os.getenv(
+        "PHARMACY_DATA_PATH",
+        str(BASE_DIR / DEFAULT_INVENTORY_PATH),
+    )
 
 
 """

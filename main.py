@@ -3,9 +3,14 @@ import base64
 import json
 import websockets
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from pharmacy_functions import FUNCTION_MAP
+from pharmacy_storage import initialize_database
 load_dotenv()
+
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 """
@@ -27,7 +32,7 @@ def connect_to_deepgram_agent():
 AGENT CONFIGURATION LOADING
 """
 def load_agent_config():
-    with open("config.json", "r") as f:
+    with open(BASE_DIR / "config.json", "r") as f:
         return json.load(f)
 
 
@@ -35,7 +40,7 @@ def load_agent_config():
 HANDLE USER INTERRUPTION
 """
 async def handle_user_interrupt(message_data, twilio_ws, stream_sid):
-    if message_data["type"] == "UserStartedSpeaking":
+    if message_data.get("type") == "UserStartedSpeaking":
         clear_message = {
             "event": "clear",
             "streamSid": stream_sid,
@@ -80,7 +85,10 @@ async def handle_function_calls(message_data, deepgram_ws):
         for function_call in message_data["functions"]:
             function_name = function_call["name"]
             function_id = function_call["id"]
-            arguments = json.loads(function_call["arguments"])
+            arguments = function_call["arguments"]
+
+            if isinstance(arguments, str):
+                arguments = json.loads(arguments)
 
             print(
                 f"Function call: {function_name} "
@@ -131,7 +139,7 @@ async def handle_deepgram_message(message_data, twilio_ws, deepgram_ws, stream_s
     await handle_user_interrupt(message_data,twilio_ws,stream_sid)
 
 
-    if message_data["type"] == "FunctionCallRequest":
+    if message_data.get("type") == "FunctionCallRequest":
         await handle_function_calls(message_data, deepgram_ws)
 
 
@@ -140,10 +148,40 @@ SEND AUDIO TO DEEPGRAM
 """
 async def send_audio_to_deepgram(deepgram_ws, audio_queue):
     print("Deepgram audio sender started")
+    audio_frames_sent = 0
+    audio_bytes_sent = 0
 
-    while True:
-        audio_chunk = await audio_queue.get()
-        await deepgram_ws.send(audio_chunk)
+    try:
+        while True:
+            audio_chunk = await audio_queue.get()
+
+            if audio_chunk is None:
+                break
+
+            audio_frames_sent += 1
+            audio_bytes_sent += len(audio_chunk)
+
+            if audio_frames_sent == 1:
+                print(
+                    "Sending audio to Deepgram: "
+                    f"first_chunk_bytes={len(audio_chunk)}"
+                )
+            elif audio_frames_sent % 50 == 0:
+                print(
+                    "Sent audio to Deepgram: "
+                    f"frames={audio_frames_sent}, "
+                    f"bytes={audio_bytes_sent}"
+                )
+
+            await deepgram_ws.send(audio_chunk)
+    except websockets.exceptions.ConnectionClosed:
+        print("Deepgram audio sender stopped: connection closed")
+
+    print(
+        "Deepgram audio sender finished: "
+        f"frames={audio_frames_sent}, "
+        f"bytes={audio_bytes_sent}"
+    )
 
 
 """
@@ -185,8 +223,8 @@ async def receive_from_deepgram(deepgram_ws, twilio_ws, stream_sid_queue):
 RECEIVE AUDIO FROM TWILIO
 """
 async def receive_from_twilio(twilio_ws, audio_queue, stream_sid_queue):
-    BUFFER_SIZE = 20 * 160
-    audio_buffer = bytearray()
+    media_frames_received = 0
+    media_bytes_received = 0
 
     async for message in twilio_ws:
         try:
@@ -198,6 +236,13 @@ async def receive_from_twilio(twilio_ws, audio_queue, stream_sid_queue):
 
                 start = data["start"]
                 stream_sid = start["streamSid"]
+                media_format = start.get("mediaFormat", {})
+
+                print(
+                    "Twilio stream started: "
+                    f"streamSid={stream_sid}, "
+                    f"mediaFormat={media_format}"
+                )
 
                 stream_sid_queue.put_nowait(stream_sid)
 
@@ -206,27 +251,48 @@ async def receive_from_twilio(twilio_ws, audio_queue, stream_sid_queue):
 
             elif event == "media":
                 media = data["media"]
+                track = media.get("track", "inbound")
 
                 chunk = base64.b64decode(
                     media["payload"]
                 )
 
-                if media["track"] == "inbound":
-                    audio_buffer.extend(chunk)
+                if track in ("inbound", "inbound_track"):
+                    media_frames_received += 1
+                    media_bytes_received += len(chunk)
+
+                    if media_frames_received == 1:
+                        print(
+                            "Forwarding Twilio audio to Deepgram: "
+                            f"track={track}, "
+                            f"first_chunk_bytes={len(chunk)}"
+                        )
+                    elif media_frames_received % 50 == 0:
+                        print(
+                            "Forwarded Twilio audio: "
+                            f"frames={media_frames_received}, "
+                            f"bytes={media_bytes_received}"
+                        )
+
+                    await audio_queue.put(chunk)
+                else:
+                    print(f"Skipping non-inbound Twilio media track: {track}")
+                    continue
 
             elif event == "stop":
                 break
 
-            while len(audio_buffer) >= BUFFER_SIZE:
-                chunk = audio_buffer[:BUFFER_SIZE]
-
-                audio_queue.put_nowait(chunk)
-
-                audio_buffer = audio_buffer[BUFFER_SIZE:]
-
         except Exception as error:
             print(f"Error receiving Twilio audio: {error}")
             break
+
+    print(
+        "Twilio audio receiver stopped: "
+        f"frames={media_frames_received}, "
+        f"bytes={media_bytes_received}"
+    )
+
+    await audio_queue.put(None)
 
 
 """
@@ -243,30 +309,40 @@ async def handle_twilio_connection(twilio_ws):
             json.dumps(config_message)
         )
 
-        await asyncio.wait(
-            [
-                asyncio.ensure_future(
-                    send_audio_to_deepgram(
-                        deepgram_ws,
-                        audio_queue
-                    )
-                ),
-                asyncio.ensure_future(
-                    receive_from_deepgram(
-                        deepgram_ws,
-                        twilio_ws,
-                        stream_sid_queue
-                    )
-                ),
-                asyncio.ensure_future(
-                    receive_from_twilio(
-                        twilio_ws,
-                        audio_queue,
-                        stream_sid_queue
-                    )
-                ),
-            ]
+        tasks = [
+            asyncio.create_task(
+                send_audio_to_deepgram(
+                    deepgram_ws,
+                    audio_queue
+                )
+            ),
+            asyncio.create_task(
+                receive_from_deepgram(
+                    deepgram_ws,
+                    twilio_ws,
+                    stream_sid_queue
+                )
+            ),
+            asyncio.create_task(
+                receive_from_twilio(
+                    twilio_ws,
+                    audio_queue,
+                    stream_sid_queue
+                )
+            ),
+        ]
+
+        done, pending = await asyncio.wait(
+            tasks,
+            return_when=asyncio.FIRST_COMPLETED,
         )
+
+        for task in pending:
+            task.cancel()
+
+        await asyncio.gather(*pending, return_exceptions=True)
+        await asyncio.gather(*done, return_exceptions=True)
+
         await twilio_ws.close()
 
 
@@ -274,6 +350,8 @@ async def handle_twilio_connection(twilio_ws):
 APPLICATION ENTRY POINT
 """
 async def main():
+    initialize_database()
+
     await websockets.serve(
         handle_twilio_connection,
         "localhost",
