@@ -36,11 +36,51 @@ async def handle_user_interrupt(decoded, twilio_ws, streamsid):
 async def handle_deepgram_message(decoded, twilio_ws, deepgram_ws, streamsid):
     pass
 
-async def send_audio_to_deepgram(deepgram_ws, audio_queue):
-    pass
 
-async def receive_from_deepgram(deepgram_ws, twilio_ws, streamsid_queue):
-    pass
+"""
+SEND AUDIO TO DEEPGRAM
+"""
+async def send_audio_to_deepgram(deepgram_ws, audio_queue):
+    print("Deepgram audio sender started")
+
+    while True:
+        audio_chunk = await audio_queue.get()
+        await deepgram_ws.send(audio_chunk)
+
+
+"""
+RECEIVE AUDIO AND MESSAGES FROM DEEPGRAM
+"""
+async def receive_from_deepgram(deepgram_ws, twilio_ws, stream_sid_queue):
+    print("Deepgram receiver started")
+    stream_sid = await stream_sid_queue.get()
+
+    async for message in deepgram_ws:
+        if isinstance(message, str):
+            print(message)
+            message_data = json.loads(message)
+
+            await handle_deepgram_message(
+                message_data,
+                twilio_ws,
+                deepgram_ws,
+                stream_sid
+            )
+            continue
+
+        raw_mulaw_audio = message
+        media_message = {
+            "event": "media",
+            "streamSid": stream_sid,
+            "media": {
+                "payload": base64.b64encode(
+                    raw_mulaw_audio
+                ).decode("ascii")
+            }
+        }
+        await twilio_ws.send(
+            json.dumps(media_message)
+        )
 
 
 """
