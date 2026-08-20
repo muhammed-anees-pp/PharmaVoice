@@ -9,14 +9,23 @@ DEFAULT_DB_PATH = "pharmacy.db"
 DEFAULT_INVENTORY_PATH = "pharmacy_inventory.json"
 
 
+"""
+GET DATABASE PATH
+"""
 def get_database_path():
     return os.getenv("PHARMACY_DB_PATH", DEFAULT_DB_PATH)
 
 
+"""
+GET INVENTORY PATH
+"""
 def get_inventory_path():
     return os.getenv("PHARMACY_DATA_PATH", DEFAULT_INVENTORY_PATH)
 
 
+"""
+LOAD INVENTORY DATA
+"""
 def load_inventory_data():
     inventory_path = get_inventory_path()
 
@@ -36,10 +45,16 @@ def load_inventory_data():
     return drugs
 
 
+"""
+GET CURRENT UTC TIMESTAMP
+"""
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
+"""
+OPEN DATABASE CONNECTION
+"""
 @contextmanager
 def connect(db_path=None):
     connection = sqlite3.connect(db_path or get_database_path())
@@ -56,6 +71,9 @@ def connect(db_path=None):
         connection.close()
 
 
+"""
+INITIALIZE DATABASE
+"""
 def initialize_database(db_path=None):
     with connect(db_path) as connection:
         connection.executescript(
@@ -106,6 +124,9 @@ def initialize_database(db_path=None):
         seed_drugs(connection)
 
 
+"""
+SEED DRUG INVENTORY
+"""
 def seed_drugs(connection):
     now = utc_now()
 
@@ -148,6 +169,9 @@ def seed_drugs(connection):
         )
 
 
+"""
+GET DRUG BY SLUG
+"""
 def get_drug(slug):
     initialize_database()
 
@@ -158,6 +182,9 @@ def get_drug(slug):
         ).fetchone()
 
 
+"""
+GET OR CREATE CUSTOMER
+"""
 def get_or_create_customer(connection, customer_name):
     normalized_name = customer_name.strip()
     now = utc_now()
@@ -177,6 +204,9 @@ def get_or_create_customer(connection, customer_name):
     ).fetchone()
 
 
+"""
+CREATE PHARMACY ORDER
+"""
 def create_order(customer_name, drug_slug):
     initialize_database()
 
@@ -241,6 +271,9 @@ def create_order(customer_name, drug_slug):
         return get_order_by_id(connection, order_id)
 
 
+"""
+GET ORDER
+"""
 def get_order(order_id):
     initialize_database()
 
@@ -248,6 +281,9 @@ def get_order(order_id):
         return get_order_by_id(connection, int(order_id))
 
 
+"""
+GET ORDER STATUS HISTORY
+"""
 def get_order_history(order_id):
     initialize_database()
 
@@ -263,6 +299,9 @@ def get_order_history(order_id):
         ).fetchall()
 
 
+"""
+GET ORDER BY ID
+"""
 def get_order_by_id(connection, order_id):
     return connection.execute(
         """
