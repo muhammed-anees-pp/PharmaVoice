@@ -9,3 +9,11 @@ wheels/
 # Virtual environments
 .venv
 .env
+
+# Local SQLite data
+*.db
+*.db-shm
+*.db-wal
+
+# Local pharmacy seed data
+pharmacy_inventory.json
