@@ -204,8 +204,15 @@ async def main():
     )
 
     print("Started server")
-    await asyncio.Future()
+
+    try:
+        await asyncio.Future()
+    except asyncio.CancelledError:
+        pass
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nServer stopped")
