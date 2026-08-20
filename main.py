@@ -46,11 +46,55 @@ async def receive_from_twilio(twilio_ws, audio_queue, streamsid_queue):
     pass
 
 
+"""
+TWILIO CONNECTION HANDLER
+"""
 async def handle_twilio_connection(twilio_ws):
-    pass
+    audio_queue = asyncio.Queue()
+    stream_sid_queue = asyncio.Queue()
 
+    async with connect_to_deepgram_agent() as deepgram_ws:
+        config_message = load_agent_config()
+        await deepgram_ws.send(
+            json.dumps(config_message)
+        )
+        await asyncio.wait(
+            [
+                asyncio.ensure_future(
+                    send_audio_to_deepgram(
+                        deepgram_ws,
+                        audio_queue
+                    )
+                ),
+                asyncio.ensure_future(
+                    receive_from_deepgram(
+                        deepgram_ws,
+                        twilio_ws,
+                        stream_sid_queue
+                    )
+                ),
+                asyncio.ensure_future(
+                    receive_from_twilio(
+                        twilio_ws,
+                        audio_queue,
+                        stream_sid_queue
+                    )
+                ),
+            ]
+        )
+        await twilio_ws.close()
+
+
+"""
+APPLICATION ENTRY POINT
+"""
 async def main():
-    await websockets.serve(handle_twilio_connection, "localhost", 5000)
+    await websockets.serve(
+        handle_twilio_connection,
+        "localhost",
+        5000
+    )
+
     print("Started server")
     await asyncio.Future()
 
