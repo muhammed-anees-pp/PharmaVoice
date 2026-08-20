@@ -325,6 +325,21 @@ def get_order(order_id):
         return get_order_by_id(connection, int(order_id))
 
 
+def get_order_history(order_id):
+    initialize_database()
+
+    with connect() as connection:
+        return connection.execute(
+            """
+            SELECT status, note, created_at
+            FROM order_status_history
+            WHERE order_id = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (int(order_id),),
+        ).fetchall()
+
+
 def get_order_by_id(connection, order_id):
     return connection.execute(
         """
@@ -345,4 +360,3 @@ def get_order_by_id(connection, order_id):
         """,
         (order_id,),
     ).fetchone()
-
