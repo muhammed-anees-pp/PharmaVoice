@@ -11,7 +11,6 @@ load_dotenv()
 
 
 BASE_DIR = Path(__file__).resolve().parent
-TWILIO_AUDIO_CHUNK_SIZE = 160
 
 
 """
@@ -149,6 +148,8 @@ SEND AUDIO TO DEEPGRAM
 """
 async def send_audio_to_deepgram(deepgram_ws, audio_queue):
     print("Deepgram audio sender started")
+    audio_frames_sent = 0
+    audio_bytes_sent = 0
 
     try:
         while True:
@@ -157,9 +158,30 @@ async def send_audio_to_deepgram(deepgram_ws, audio_queue):
             if audio_chunk is None:
                 break
 
+            audio_frames_sent += 1
+            audio_bytes_sent += len(audio_chunk)
+
+            if audio_frames_sent == 1:
+                print(
+                    "Sending audio to Deepgram: "
+                    f"first_chunk_bytes={len(audio_chunk)}"
+                )
+            elif audio_frames_sent % 50 == 0:
+                print(
+                    "Sent audio to Deepgram: "
+                    f"frames={audio_frames_sent}, "
+                    f"bytes={audio_bytes_sent}"
+                )
+
             await deepgram_ws.send(audio_chunk)
     except websockets.exceptions.ConnectionClosed:
         print("Deepgram audio sender stopped: connection closed")
+
+    print(
+        "Deepgram audio sender finished: "
+        f"frames={audio_frames_sent}, "
+        f"bytes={audio_bytes_sent}"
+    )
 
 
 """
@@ -201,7 +223,8 @@ async def receive_from_deepgram(deepgram_ws, twilio_ws, stream_sid_queue):
 RECEIVE AUDIO FROM TWILIO
 """
 async def receive_from_twilio(twilio_ws, audio_queue, stream_sid_queue):
-    audio_buffer = bytearray()
+    media_frames_received = 0
+    media_bytes_received = 0
 
     async for message in twilio_ws:
         try:
@@ -213,6 +236,13 @@ async def receive_from_twilio(twilio_ws, audio_queue, stream_sid_queue):
 
                 start = data["start"]
                 stream_sid = start["streamSid"]
+                media_format = start.get("mediaFormat", {})
+
+                print(
+                    "Twilio stream started: "
+                    f"streamSid={stream_sid}, "
+                    f"mediaFormat={media_format}"
+                )
 
                 stream_sid_queue.put_nowait(stream_sid)
 
@@ -228,26 +258,39 @@ async def receive_from_twilio(twilio_ws, audio_queue, stream_sid_queue):
                 )
 
                 if track in ("inbound", "inbound_track"):
-                    audio_buffer.extend(chunk)
+                    media_frames_received += 1
+                    media_bytes_received += len(chunk)
+
+                    if media_frames_received == 1:
+                        print(
+                            "Forwarding Twilio audio to Deepgram: "
+                            f"track={track}, "
+                            f"first_chunk_bytes={len(chunk)}"
+                        )
+                    elif media_frames_received % 50 == 0:
+                        print(
+                            "Forwarded Twilio audio: "
+                            f"frames={media_frames_received}, "
+                            f"bytes={media_bytes_received}"
+                        )
+
+                    await audio_queue.put(chunk)
                 else:
+                    print(f"Skipping non-inbound Twilio media track: {track}")
                     continue
 
             elif event == "stop":
                 break
 
-            while len(audio_buffer) >= TWILIO_AUDIO_CHUNK_SIZE:
-                chunk = audio_buffer[:TWILIO_AUDIO_CHUNK_SIZE]
-
-                await audio_queue.put(chunk)
-
-                audio_buffer = audio_buffer[TWILIO_AUDIO_CHUNK_SIZE:]
-
         except Exception as error:
             print(f"Error receiving Twilio audio: {error}")
             break
 
-    if audio_buffer:
-        await audio_queue.put(bytes(audio_buffer))
+    print(
+        "Twilio audio receiver stopped: "
+        f"frames={media_frames_received}, "
+        f"bytes={media_bytes_received}"
+    )
 
     await audio_queue.put(None)
 
