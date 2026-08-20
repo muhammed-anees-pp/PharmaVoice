@@ -17,3 +17,6 @@ wheels/
 
 # Local pharmacy seed data
 pharmacy_inventory.json
+
+# Local tests
+tests/
